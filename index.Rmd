@@ -66,7 +66,8 @@ college %>% group_by(Private) %>% summarize(count=n())
 
 ```{R}
 library(cluster)
-
+library(ggplot2)
+require(GGally)
 clust_dat<-college%>%dplyr::select(5,8,10,13,16)
 sil_width<-vector() #empty vector to hold mean sil width
 for(i in 2:20){  
@@ -165,7 +166,6 @@ class_diag(prob_knn[,1],college2$Private, positive=1)
 
 #confusion matrix
 y <- college2$Private
-x <- biopsy$clump_thickness
 yhat <- prob_knn
 table(actual=y, predicted=yhat)
 ```
@@ -243,16 +243,21 @@ The measure of prediction is large when a linear regression model is fitted to t
 library(reticulate)
 use_python("/usr/bin/python3", required = F)
 college_cost <- college %>% mutate(total_cost=(Room.Board + Books + Personal))
+
 ```
 
 ```{python}
-r.college_cost
+college_cost = r.college_cost
 
-2+2
+college_cost['tot_stu_cost'] = college_cost['total_cost']*college_cost['Enroll']
 ```
 
+``` {r}
+head(py$college_cost)
 
-The total cost for an average student was calculated for each student in R. Then in python, the total cost calculated was multiplied with the total number of students enrolled to attain the total amount spent across all students.
+```
+
+The total cost for an average student was calculated for each student in R. Then in python, the total cost calculated was multiplied with the total number of students enrolled to attain the total amount spent across all students. The results of the calculations are seen in R.
 
 
 
