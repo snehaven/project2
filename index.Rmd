@@ -46,92 +46,214 @@ class_diag <- function(score, truth, positive, cutoff=.5){
 
 # Mining, Classification, Prediction
 
-## Name and EID here
+## Sneha Venkatesan (sv23377)
 
 ### Introduction 
 
-Paragraph or two introducing your datasets and variables, why they are interesting to you, etc. See instructions for more information
+The College dataset is a dataframe with 777 observations of 77 variables. There is a binary variable (Private) that indicates whether the school is either private or public. There are 212 schools that are not private and 565 schools that are private. There is column with the number of applications received (Apps), number of applications accepted (Accept), number of new students enrolled (Enroll), number of students who were top 10% at their high school (Top10perc), number of studenst who were top 25% at their high school (Top25perc), number of full time students (F.Undergrad), number of part-time students (P.Undergrad), out-of-state tuition (Outstate), room and board costs(Room.Board), estimated book costs (Books), estimated personal spending (Personal), percent of faculty with Ph. D.'s (PhD), percent of faculty with terminal degrees(Terminal), student-faculty ratio(S.F.Ratio), percent of alumni who donate(perc.alumni), instructional expenditure per student (Expend), and graduation rate(Grad Rate). The data is from 1995 issue of US News and World Report. This dataset was taken from the StatLib library which is maintained at Carnegie Mellon University. 
 
 ```{R}
 library(tidyverse)
-# read your datasets in here, e.g., with read_csv()
 
-# if your dataset needs tidying, do so here
+#Store dataset in a variable called "college"
+college <- read_csv("/stor/home/sv23377/project2/College.csv")
 
-# any other code here
+#Number of instances of the binary variable 
+college %>% group_by(Private) %>% summarize(count=n())
 ```
 
 ### Cluster Analysis
 
 ```{R}
 library(cluster)
-# clustering code here
+
+clust_dat<-college%>%dplyr::select(5,8,10,13,16)
+sil_width<-vector() #empty vector to hold mean sil width
+for(i in 2:20){  
+  kms <- kmeans(clust_dat,centers=i) #compute k-means solution for each k
+  sil <- silhouette(kms$cluster,dist(clust_dat)) #get sil widths
+  sil_width[i]<-mean(sil[,3]) #take averages (higher is better)
+}
+ggplot()+geom_line(aes(x=1:20,y=sil_width))+scale_x_continuous(name="k",breaks=1:20)
+
+
+college_pam <- clust_dat %>% pam(k=2)#PAM function
+pamclust<-clust_dat %>% mutate(cluster=as.factor(college_pam$clustering))#Save cluster assignments
+pamclust %>% group_by(cluster) %>% summarize_if(is.numeric,mean,na.rm=T)#Mean variables in each cluster
+college%>%slice(college_pam$id.med)#Most representative of cluster
+
+
+#Pairwise combination of all variables
+college %>% mutate(cluster=as.factor(college_pam$clustering)) %>% ggpairs(columns=c(5,8,10,13,16), aes(color=cluster))
+
+
 ```
 
-Discussion of clustering here
+I chose the following variables to explore:Enroll, F.Undergrad, Outstate, Personal, S.F.Ratio. I chose these variables because I predict these variables would be correlated with whether the school is private or public. Plotting the largest average silhouette width showed that a cluster solution is best with 2 clusters. The cluster assignments have been saved to pamclust. The summarized means for each variable in each cluster were calculated. Saint Francis College and Appalachian State University are the most representative of each cluster. Enroll and F.Undergrad had the least overlap with the two clusters. Personal and S.F. Ratio had the most cluster overlap.     
     
     
 ### Dimensionality Reduction with PCA
 
 ```{R}
-# PCA code here
+college1<- college %>% select(1,2,5,8,10,13,16) #Select variables of interest
+college_nums<-college1 %>% select_if(is.numeric) %>% scale #Scale data
+rownames(college_nums)<-college1$Name
+college_pca<-princomp(college_nums) #Perform PCA
+names(college_pca)
+summary(college_pca, loadings=T) #Summary of PCA
+
+collegef<-data.frame(Name=college1$X1, PC1=college_pca$scores[, 1],PC2=college_pca$scores[, 2])
+ggplot(collegef, aes(PC1, PC2)) + geom_point() #Plot of PC Scores for each datapoint
+ 
 ```
 
-Discussions of PCA here. 
+Selecting the variables of interest (Enroll, F.Undergrad, Outstate, Personal, S.F.Ratio) and normalizing the data, a PCA was performed. High scores on Principal Component 1 indicate a high number of students enrolled, a high number of full time undergraduates, low on out of state tuition, high on personal expenses, and high on student-to-faculty ratio.  Low scores on Principal Component 1 indicate a low number of students enrolled, a low number of full time undergraduates, high on out of state tuition, low on personal expenses, and low on student-to-faculty ratio. High scores on Principal Component 2 indicate a high number of students enrolled, a high number of full time undergraduates, high on out of state tuition, and low on student-to-faculty ratio.  Low scores on Principal Component 2 indicate a low number of students enrolled, a low number of full time undergraduates, low on out of state tuition, and high on student-to-faculty ratio. High scores on Principal Component 3 indicate a high number of students enrolled, a high number of full time undergraduates, low on out of personal expenses, and high on student-to-faculty ratio.  Low scores on Principal Component 3 indicate a low number of students enrolled, a low number of full time undergraduates, high on out of personal expenses, and low on student-to-faculty ratio..Principal Component 1 accounts for 49% of variance. Principal Component 2 accounts for 26% of variance. Principal Component 3 accounts for 17% of the variance.
+
 
 ###  Linear Classifier
 
 ```{R}
-# linear classifier code here
+college2 <- college %>% mutate(Private =ifelse(Private=="Yes", 1, 0)) %>% mutate(Private=as.logical(Private)) %>% mutate_at(c(3:18), as.integer)
+logistic_fit <- glm(Private=="True" ~ Apps + Accept + Enroll + Top10perc + F.Undergrad+Outstate + Personal+perc.alumni+Expend, data=college2, family="binomial")
+
+prob_reg <- predict(logistic_fit, type="response")
+class_diag(prob_reg,college2$Private, positive=1)
+
+table(truth=college2$Private, predictions=prob_reg>.5)
+
 ```
 
 ```{R}
-# cross-validation of linear classifier here
+set.seed(322)
+k=10
+
+data<-sample_frac(college2) #randomly order rows
+folds <- rep(1:k, length.out=nrow(data)) #create folds
+
+diags<-NULL
+
+i=1
+for(i in 1:k){
+# create training and test sets
+train<-data[folds!=i,] 
+test<-data[folds==i,] 
+truth<-test$Private
+
+# train model
+fit <- glm(Private ~ Apps + Accept + Enroll + Top10perc + F.Undergrad+Outstate + Personal+perc.alumni+Expend, data=test, family="binomial")
+
+# test model
+probs <- predict(fit, newdata=test, type="response")
+
+# get performance metrics for each fold
+diags<-rbind(diags,class_diag(probs,truth, 1))}
+
+#average performance metrics across all folds
+summarize_all(diags,mean)
 ```
 
-Discussion here
+The logistic regression had a low AUC, which indicates that the model is not performing well. There is not a lot of separation between the two conditions. The model does better in cross validation since the auc increases to 0.99, so there is not much overfitting.
 
 ### Non-Parametric Classifier
 
 ```{R}
 library(caret)
-# non-parametric classifier code here
+knn_fit <- knn3(Private=="True" ~ Apps + Accept + Enroll + Top10perc + F.Undergrad+Outstate + Personal+perc.alumni+Expend, data=college2)
+
+prob_knn <- predict(knn_fit,college2)
+class_diag(prob_knn[,1],college2$Private, positive=1)
+
+#confusion matrix
+y <- college2$Private
+x <- biopsy$clump_thickness
+yhat <- prob_knn
+table(actual=y, predicted=yhat)
 ```
 
 ```{R}
-# cross-validation of np classifier here
+set.seed(322)
+k=10
+
+data<-sample_frac(college2) #randomly order rows
+folds <- rep(1:k, length.out=nrow(data)) #create folds
+
+diags<-NULL
+
+i=1
+for(i in 1:k){
+# create training and test sets
+train<-data[folds!=i,] 
+test<-data[folds==i,] 
+truth<-test$Private
+
+# train model
+fit <- glm(Private ~ Apps + Accept + Enroll + Top10perc + F.Undergrad+Outstate + Personal+perc.alumni+Expend, data=train, family="binomial")
+
+# test model
+probs <- predict(fit, newdata=test, type="response")
+
+# get performance metrics for each fold
+diags<-rbind(diags,class_diag(probs,truth, positive=1)) }
+
+#average performance metrics across all folds
+summarize_all(diags,mean)
+
+
+
 ```
 
-Discussion
+Classification diagnostics were performed to predict whether a school was private or public from predictors using k nearest neighbors (kNN). The logistic regression had a low AUC, which indicates that the model is not performing well. There is not a lot of separation between the two conditions. The model does better in cross validation since the auc increases to 0.98, so there is not much overfitting. The nonparametric model does worse than the linear model in the cross validation performance but not by a lot because the area under the curve is only lowered by .02. The model only predicted private for all observations. There are 565 true positives and 212 false positives.
 
 
 ### Regression/Numeric Prediction
 
 ```{R}
-# regression model code here
+
+college3 <- college2 %>% select(-1, -2)
+fit<-lm(Apps~.,data=college3) #predict number of applicants from all other variables
+yhat<-predict(fit) #predicted applicants
+mean((college$Apps-yhat)^2) #mean squared error (MSE)
 ```
 
 ```{R}
-# cross-validation of regression model here
+set.seed(1234)
+k=5 #choose number of folds
+data<-college3[sample(nrow(college3)),] #randomly order rows
+folds<-cut(seq(1:nrow(college3)),breaks=k,labels=F) #create folds
+diags<-NULL
+for(i in 1:k){
+  train<-data[folds!=i,]
+  test<-data[folds==i,]
+  ## Fit linear regression model to training set
+  fit<-lm(Apps~.,data=train)
+  ## Get predictions/y-hats on test set (fold i)
+  yhat<-predict(fit,newdata=test)
+  ## Compute prediction error  (MSE) for fold i
+  diags<-mean((test$Apps-yhat)^2) 
+}
+mean(diags) # MSE
+
 ```
 
-Discussion
+The measure of prediction is large when a linear regression model is fitted to the dataset. The average MSE across your k testing folds is lower in k-fold cross validation, so there is not much overfitting.
 
 ### Python 
 
 ```{R}
 library(reticulate)
+use_python("/usr/bin/python3", required = F)
+college_cost <- college %>% mutate(total_cost=(Room.Board + Books + Personal))
 ```
 
 ```{python}
-# python code here
+r.college_cost
+
+2+2
 ```
 
-Discussion
 
-### Concluding Remarks
+The total cost for an average student was calculated for each student in R. Then in python, the total cost calculated was multiplied with the total number of students enrolled to attain the total amount spent across all students.
 
-Include concluding remarks here, if any
 
 
 
